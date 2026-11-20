@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Agent Bubble</title>
+<style>
+  html, body { margin: 0; width: 72px; height: 72px; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; }
+  .wrap { position: absolute; left: 0; top: 0; width: 72px; height: 72px; }
+  .b { position: absolute; left: 7px; top: 7px; width: 58px; height: 58px; border-radius: 50%; background: #f1e7d3; box-shadow: 0 0 0 3px #2e2622, 0 4px 10px rgba(0,0,0,.35); overflow: hidden; }
+  .ring { position: absolute; left: 1px; top: 1px; width: 70px; height: 70px; border-radius: 50%; }
+  .work .ring { background: conic-gradient(#4f86e8 0 70%, transparent 70% 100%); animation: spin 1.4s linear infinite; }
+  .ask .ring { background: #e0a020; animation: pulse 0.9s ease-in-out infinite; }
+  .idle .ring { background: #3dbb8b; }
+  .off .ring { background: #8a7f73; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .face { position: absolute; left: 5px; top: 6px; width: 48px; height: 48px; image-rendering: pixelated; }
+  .floor { position: absolute; left: 0; right: 0; bottom: 0; height: 13px; background: #e8c48e; border-top: 2px solid #c9b28e; }
+  .badge { position: absolute; min-width: 19px; height: 19px; padding: 0 4px; box-sizing: border-box; border-radius: 10px; border: 2px solid #2e2622; font: 700 11px/15px ui-monospace, Menlo, monospace; text-align: center; color: #fff; display: none; }
+  .badge.show { display: block; }
+  .wait { right: 0; top: 0; background: #e0a020; color: #2e2622; }
+  .busy { right: 0; bottom: 0; background: #4f86e8; }
+  .z { position: absolute; left: 40px; top: 6px; font: 700 10px ui-monospace, monospace; color: #6c7a99; display: none; animation: float 2.4s infinite; }
+  .idle .z { display: block; }
+  @keyframes float { 0% { transform: translateY(6px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(-6px); opacity: 0; } }
+  .bang { position: absolute; left: 39px; top: 3px; width: 10px; height: 14px; background: #ffd54a; border: 2px solid #2e2622; display: none; font: 900 11px/14px ui-monospace, monospace; color: #c0392b; text-align: center; }
+  .ask .bang { display: block; }
+</style>
+</head>
+<body>
+  <div class="wrap off" id="w">
+    <div class="ring"></div>
+    <div class="b">
+      <div class="floor"></div>
+      <svg class="face" id="face" viewBox="0 0 12 12" shape-rendering="crispEdges"></svg>
+      <div class="z">z</div>
+      <div class="bang">!</div>
+    </div>
+    <div class="badge wait" id="wait"></div>
+    <div class="badge busy" id="busy"></div>
+  </div>
+<script>
+  // mặt chibi (cùng kiểu với văn phòng), viền tối tự động
+  const HEAD = ['....HHHH....', '...HHHHHH...', '..HHHHHHHH..', '..HHHHHHHH..', '..HSSHSSSH..', '..HSSSSSSH..']
+  const FACES = {
+    open: ['..HSESSESH..', '..HBSSSSBH..', '...SSMMSS...'],
+    closed: ['..HLLSSLLH..', '..HBSSSSBH..', '...SSSMSS...'],
+  }
+  const TAIL = ['....TTTT....', '..TTTTTTTT..', '............']
+  const COLORS = { H: '#4a3426', S: '#f6d2b4', E: '#2b2b35', L: '#2b2b35', B: '#f4a3a3', M: '#c45d55', T: '#d97757' }
+
+  function face(kind) {
+    const rows = [...HEAD, ...FACES[kind], ...TAIL]
+    const at = (x, y) => rows[y]?.[x] ?? '.'
+    let s = ''
+    for (let y = 0; y < rows.length; y++)
+      for (let x = 0; x < 12; x++) {
+        const ch = at(x, y)
+        if (ch !== '.') s += `<rect x="${x}" y="${y}" width="1" height="1" fill="${COLORS[ch]}"/>`
+        else if ([at(x - 1, y), at(x + 1, y), at(x, y - 1), at(x, y + 1)].some(c => c !== '.'))
+          s += `<rect x="${x}" y="${y}" width="1" height="1" fill="#2e2622"/>`
+      }
+    return s
+  }
+
+  let mode = ''
+  function paint(next) {
+    if (next === mode) return
+    mode = next
+    document.getElementById('w').className = `wrap ${next}`
+    document.getElementById('face').innerHTML = face(next === 'idle' || next === 'off' ? 'closed' : 'open')
+  }
+
+  function badge(id, n) {
+    const el = document.getElementById(id)
+    el.textContent = n > 99 ? '99+' : String(n)
+    el.classList.toggle('show', n > 0)
+  }
+
+  // ---------- thông báo macOS (qua app Swift) ----------
+  // App Swift gắn handler "notify". Trang chào → app trả lời nativeReady(true/false) tuỳ macOS có cho phép thông báo.
+  // Chỉ khi được phép mới nối /events?client=native để server biết cửa sổ Chrome không cần báo trùng.
+  const native = window.webkit?.messageHandlers?.notify
+  let nativeOn = false
+  /** id thông báo đã thấy; lần đầu đánh dấu hết, không phát lại cái cũ */
+  let seen = null
+
+  function deliver(list) {
+    if (!seen) {
+      seen = new Set(list.map(n => n.id))
+      return
+    }
+    for (const n of list) {
+      if (seen.has(n.id)) continue
+      seen.add(n.id)
+      if (nativeOn) native.postMessage({ type: 'notify', id: n.id, title: n.title, body: n.body, session: n.sessionId ?? '' })
+    }
+  }
+
+  let build = null
+  function apply(snap) {
+    if (build && snap.build && snap.build !== build) return location.reload()
+    build ??= snap.build
+    const all = snap.sessions.flatMap(s => [s, ...s.agents])
+    const asking = all.filter(c => c.state === 'asking').length
+    const working = all.filter(c => c.state === 'working').length
+    badge('wait', asking)
+    badge('busy', working)
+    paint(asking ? 'ask' : working ? 'work' : 'idle')
+    deliver(snap.notifs ?? [])
+  }
+
+  // link: 'native' = được phép báo · 'denied' = macOS đang chặn (server báo lên menu 🔔) · 'plain' = app cũ / không phải bong bóng
+  let es = null
+  let link = ''
+  function start(next) {
+    if (es && link === next) return
+    if (es) es.close()
+    link = next
+    nativeOn = next === 'native'
+    es = new EventSource(next === 'plain' ? '/events' : `/events?client=${next}`)
+    es.onmessage = ev => apply(JSON.parse(ev.data))
+    es.onerror = () => paint('off')
+  }
+  window.nativeReady = ok => start(ok ? 'native' : 'denied')
+
+  paint('off')
+  if (native) {
+    native.postMessage({ type: 'hello' })
+    setTimeout(() => es || start('plain'), 4000) // app cũ / không trả lời → chạy như trước, không báo
+    // bật lại quyền trong Cài đặt hệ thống → tự nhận, không cần khởi động lại bong bóng
+    setInterval(() => nativeOn || native.postMessage({ type: 'hello' }), 30000)
+  } else start('plain')
+</script>
+</body>
+</html>

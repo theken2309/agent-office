@@ -1,0 +1,24 @@
+{
+  "_ghi_chu": [
+    "Khai báo quy trình nhiều agent để Agent Office dựng dải bước + tab Quy trình. Sửa file này rồi lưu, server tự đọc lại trong ~20 giây.",
+    "Một phiên được coi là chạy quy trình khi gọi ít nhất một agent có tên trong steps (theo subagent_type).",
+    "steps[].agent   : tên agent (subagent_type).",
+    "steps[].label   : tên hiện trên giao diện.",
+    "steps[].optional: true = được bỏ qua (vd. không có thay đổi giao diện).",
+    "steps[].gate    : cổng duyệt sau bước này. match = regex (không phân biệt hoa thường) để nhận ra câu hỏi duyệt; không khớp thì lấy câu hỏi đầu tiên sau khi bước xong.",
+    "steps[].loop.max: số vòng tối đa (vd. tester FAIL → coder sửa → test lại).",
+    "steps[].result  : true = đọc số PASS / FAIL / NOT RUN trong báo cáo cuối của agent."
+  ],
+  "pipelines": [
+    {
+      "id": "ticket",
+      "name": "Quy trình ticket",
+      "steps": [
+        { "agent": "planner", "label": "Planner", "gate": { "label": "Duyệt Plan", "match": "\\bplan\\b|kế hoạch|phương án" } },
+        { "agent": "ui-designer", "label": "UI designer", "optional": true, "gate": { "label": "Duyệt UI spec", "match": "\\bui\\b|giao diện" } },
+        { "agent": "coder", "label": "Coder" },
+        { "agent": "tester", "label": "Tester", "loop": { "max": 2 }, "result": true }
+      ]
+    }
+  ]
+}
